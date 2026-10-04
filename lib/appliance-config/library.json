@@ -1,0 +1,8 @@
+{
+  "name": "ApplianceConfig",
+  "version": "0.2.0",
+  "description": "Bounded NVS configuration, WireGuard import and asynchronous admin authentication",
+  "license": "AGPL-3.0-only",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

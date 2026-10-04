@@ -1,0 +1,141 @@
+# 480p independent event clips
+
+Implementation scope, authorized 2026-10-04: independent event clips at
+640 × 480, plus media selection and bulk deletion. Manual recording remains
+available after disarming. No GitHub publication is part of this change.
+
+## Event lifecycle
+
+- Arm explicitly with sensitivity 1–10 (default 5); reboot starts disarmed.
+- Temporarily use VGA at a target 15 FPS; retain the user's stored capture
+  settings and restore them when disarmed. Parameters and saved photos are
+  blocked while armed; preview and status remain available. Mode guards remain
+  active until sensor resolution/FPS restoration finishes.
+- Decode one eighth size JPEGs at most four times per second, compare 80 × 60
+  grayscale frames, compensate uniform brightness shifts, and require two
+  consecutive changes to start an event. Allow two seconds for initial settling.
+- Save ordinary MJPEG video and 16 kHz mono PCM only during an event.
+  Hold candidate quiet video and matching audio in bounded PSRAM buffers.
+  If motion resumes within one second, append both buffers; otherwise discard
+  that quiet tail and finalize a separate clip. Detection has 250 ms granularity.
+- Keep brief events instead of applying the manual recorder's five-second
+  minimum. Use random suffixes to avoid same-second naming collisions.
+- Split prolonged activity at five minutes / 4,000 frames. Stop safely on
+  storage, audio or repeated decode failures. A full tail buffer ends the
+  current clip at the start of the quiet interval and resumes monitoring.
+- Arming prevents unattended sensor sleep. Logging out leaves monitoring on;
+  disarm explicitly to return to normal idle saving. This saves storage rather
+  than providing deep sleep. No person recognition or pre-roll is included.
+
+Detector images and the bounded video/audio tail use approximately 600 KiB of
+PSRAM in addition to the camera and existing AVI index. These allocations are
+released when disarmed. Sampling uses actual JPEG decode even in the integration
+fixture, which then substitutes only its small grayscale detector input.
+
+## Bulk deletion
+
+Every row has a checkbox; selection spans pages of the currently selected date
+and resets when the date/list is refreshed. Select-all applies to loaded rows.
+Delete-selected and delete-all require a confirmation naming their scope.
+Delete-all first enumerates every date and every page and aborts if the scan is
+incomplete. It deletes the resulting snapshot in batches of at most 20 files.
+Only application JPEG/AVI paths are accepted; configuration, temporary files,
+directories and unrelated SD files are never deleted. The server checks session,
+CSRF, Origin, mode, transfer activity, schema, duplicates and existence before
+each batch. A failed SD write/deletion may leave partial results; the UI reports
+the completed count and refreshes the list. There is no automatic media purge.
+
+## Acceptance — 2026-10-04
+
+Both pinned builds pass. The final normal image is **1,916,528 bytes / 57.34%**
+of the OTA slot, static RAM **103,644**. The fixture is **1,917,760 bytes /
+57.38%**, static RAM **103,652**. Private BIN/ELF/digests are named
+`appliance-events-final` and `appliance-events-final-fixture`; the normal digest
+is `18b9fb47376bca344a0de857c89ab0227435efc692c646914315e26d3ba67682`.
+
+The **58-check real-board integration gate** passes in
+`.tools/hardware/events-fixture-final/report.json`. It uses RAM-only detector
+input substitutions after actual JPEG decode, with real VGA frames, PDM audio,
+SD files, authenticated HTTP and normal OTA restoration. Six detector algorithm
+cases pass on the board. Static input for 35 seconds, noise and uniform lighting
+for five seconds each create no clips; monitoring also survives logout and
+overrides a temporary 30-second idle policy. The 119 monitoring observations
+have a maximum JPEG decode duration of 31 ms; free heap ranges 83,124–140,044
+bytes and minimum free PSRAM is 3,075,760 bytes. These are observations in this
+workload, not a sustained-performance or power measurement.
+
+Continuation across a short quiet gap, a brief event and explicit disarm create
+exactly three separately named 640×480 MJPEG/16 kHz mono PCM AVI files. All
+download and decode completely with FFmpeg `-xerror`:
+
+| Case | Video seconds | PCM seconds | Difference |
+| --- | ---: | ---: | ---: |
+| Motion / short quiet / resumed motion | 6.584 | 6.592 | 8 ms |
+| Brief event | 1.109 | 1.088 | 21 ms |
+| Disarm during event | 1.295 | 1.280 | 15 ms |
+
+Sensor restoration reports the original 1600-pixel video width before disarmed
+status, all 31 stored values remain unchanged, and the restored JPEG decodes.
+The final normal OTA excludes the fixture endpoint, starts disarmed and retains
+the confirmed full tunnel with verified expected server exit. This is an
+outbound proof, not fresh remote-peer inbound acceptance.
+
+The **80-check production Chrome/HTTP/media gate** passes on the exact normal
+digest in `event-media-browser-final/report.json`: four source-matching assets,
+real detector execution, mode conflicts, strict batch/auth/existence guards,
+actual owned-file deletion, three languages/nine layouts, cancelled confirmation,
+selection across two pages, and complete all-date enumeration before deletion.
+Twenty-four owned files are deleted through real SD endpoints. A separate
+41-file/21-date browser model tests pagination without real deletion. Incomplete
+enumeration initiates no deletion. A real manual audio AVI still fully decodes
+(6.323/6.336 seconds, 13 ms difference). Nine host unit checks, Python/JavaScript
+syntax and Git whitespace checks also pass. See [browser evidence](BROWSER_QA.md).
+
+Only proven test files are deletion targets. Final reconciliation passes:
+all **89 preexisting media paths and sizes** remain unchanged, 44 failed-run
+owned files are removed in 20+20+4 batches, and the three passing event clips
+are retained (92 files total). Every other path/size also remains unchanged.
+The separate failed-run ownership ledger and cleanup reports are
+`events-red-owned.json` and `events-red-cleanup.json`. Final mobile media toolbar
+screenshots in all three languages pass; Chinese and German are visually
+inspected, including selection counts and both deletion controls. Existing
+user media must never be used to exercise a whole-card clear.
+
+The final 600.1-second serial capture contains all three successful event closes
+and normal firmware restoration/idle operation, with zero panic, watchdog,
+stack-canary or heap-corruption matches. Evidence:
+`events-final-green-serial.log` and `events-final-serial-summary.json`.
+The exact staged snapshot and named firmware/report/log artifacts are checked
+against all six supplied local private values with `scripts/audit_private.py`;
+credentials, configuration exports and hardware evidence remain ignored.
+
+Physical motion sensitivity and a real stationary-camera scene are **not
+tested**: the user deferred arranging the camera and moving an object. Slow
+motion, local lighting/shadows, speech quality, measured power, physical phone
+browsers, long event splitting and actual storage failure remain distinct
+acceptance items; synthetic input does not prove them.
+
+## Retained failures and corrections
+
+- The first harness expected HTTP 401 for unauthenticated mutation; the
+  existing authorization contract correctly returns 403. A fixture LAN check
+  then rejected IPv4-mapped IPv6 sockets; the corrected check handles both.
+- A stale timestamp captured before opening the AVI underflowed unsigned clip
+  duration and produced 41 one-frame 10–22 ms files. Refreshing time after open
+  and decode fixes this; the gate explicitly checks sustained recording before
+  the first save. These failed clips have serial/time-window and inventory proof.
+- Candidate audio-tail discard could briefly resume WAV writes before close.
+  Finalization now stops writes and discards the quiet tail atomically under
+  the audio mutex; the passing short and continued clips include real PCM.
+- The next integration correctly found disarmed status before sensor resolution
+  restoration. Mode guards now remain active until restoration finishes. Its
+  three owned clips decode separately in `events-restoration-red-media`, but
+  that failed run is not counted as passing acceptance.
+- CSP polling and a harness cleanup-before-install ordering failed separately.
+  Locator assertions replace string polling; normal OTA precedes old owned-file
+  cleanup. Firmware CSP and original-file ownership guards remain intact.
+
+Failed reports and distinct candidate images remain private evidence, including
+`events-fixture-{first,auth-fixed,lan-fixed,timing-fixed}` and
+`event-media-browser-{first,auth-fixed,csp-fixed,install-order}`. Serial captures
+remain separate from each report; no failure is overwritten by the green runs.

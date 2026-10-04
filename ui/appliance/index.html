@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5f8">
+  <title>XIAO Camera</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/i18n.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead"><a class="brand" href="/"><span class="brandmark" aria-hidden="true">◉</span> XIAO <span>CAMERA</span></a><div class="header-tools"><span class="local"><span data-i18n="设备控制台">设备控制台</span></span><label class="sr-only" for="language"><span data-i18n="语言">语言</span></label><select id="language"><option value="cn"><span data-i18n="中文">中文</span></option><option value="en">English</option><option value="de">Deutsch</option></select></div></header>
+  <main>
+    <section id="setup-panel" class="login-card" hidden aria-labelledby="setup-title">
+      <span class="eyebrow"><span data-i18n="首次设置">首次设置</span></span>
+      <h1 id="setup-title"><span data-i18n="让镜头接入你的网络">让镜头接入你的网络</span></h1>
+      <p class="intro"><span data-i18n="连接 2.4 GHz Wi-Fi，并设置管理员密码。完成后可在家庭网络中登录设备。">连接 2.4 GHz Wi-Fi，并设置管理员密码。完成后可在家庭网络中登录设备。</span></p>
+      <form id="setup-form">
+        <label for="setup-ssid"><span data-i18n="Wi-Fi 名称">Wi-Fi 名称</span></label>
+        <input id="setup-ssid" autocomplete="off" required maxlength="32">
+        <label for="setup-wifi-password"><span data-i18n="Wi-Fi 密码">Wi-Fi 密码</span></label>
+        <input id="setup-wifi-password" type="password" autocomplete="off" maxlength="63">
+        <label for="setup-password"><span data-i18n="管理员密码">管理员密码</span></label>
+        <input id="setup-password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="setup-help">
+        <p id="setup-help" class="message"><span data-i18n="至少 10 个字符，最多 128 个 UTF-8 字节。Wi-Fi 与管理员密码分别保存。">至少 10 个字符，最多 128 个 UTF-8 字节。Wi-Fi 与管理员密码分别保存。</span></p>
+        <button id="setup-submit" class="primary" type="submit"><span data-i18n="保存并测试连接">保存并测试连接</span></button>
+      </form>
+      <p id="setup-message" class="message" role="status" aria-live="polite"></p>
+      <a id="setup-lan-link" class="button-link" hidden><span data-i18n="连接家庭 Wi-Fi 后，打开此地址确认">连接家庭 Wi-Fi 后，打开此地址确认</span></a>
+      <button id="setup-confirm" class="primary" type="button" hidden><span data-i18n="确认此网络可用">确认此网络可用</span></button>
+      <p class="footnote"><span data-i18n="确认需要从新 Wi-Fi 的局域网地址访问。连接失败或未及时确认时，设备会保留热点供你重新设置。">确认需要从新 Wi-Fi 的局域网地址访问。连接失败或未及时确认时，设备会保留热点供你重新设置。</span></p>
+    </section>
+    <section id="login-panel" class="login-card" aria-labelledby="login-title">
+      <span class="eyebrow"><span data-i18n="欢迎回来">欢迎回来</span></span>
+      <h1 id="login-title"><span data-i18n="你的镜头，">你的镜头，</span><br><span data-i18n="随时就绪。">随时就绪。</span></h1>
+      <p class="intro"><span data-i18n="登录后查看实时画面，手动录制带声音的视频。">登录后查看实时画面，手动录制带声音的视频。</span></p>
+      <form id="login-form">
+        <label for="password"><span data-i18n="管理员密码">管理员密码</span></label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128" aria-describedby="login-message">
+        <button id="login-button" class="primary" type="submit"><span data-i18n="登录设备">登录设备</span><span aria-hidden="true">→</span></button>
+      </form>
+      <p id="login-message" class="message" role="status" aria-live="polite"><span data-i18n="正在检查设备…">正在检查设备…</span></p>
+      <p class="footnote"><span data-i18n="远程访问请使用 WireGuard；本地访问请使用可信网络。">远程访问请使用 WireGuard；本地访问请使用可信网络。</span></p>
+    </section>
+    <section id="dashboard" hidden aria-labelledby="dashboard-title">
+      <div class="heading"><div><span class="eyebrow">XIAO ESP32S3 SENSE</span><h1 id="dashboard-title"><span data-i18n="摄像机">摄像机</span></h1></div><button id="logout" class="quiet" type="button"><span data-i18n="退出登录">退出登录</span></button></div>
+      <div class="workspace">
+        <section class="preview-card" aria-label="摄像预览">
+          <div class="card-top"><span id="camera-state" class="badge"><span data-i18n="正在连接">正在连接</span></span><span id="record-state" class="record-badge" hidden><span data-i18n="● 录制中">● 录制中</span></span></div>
+          <div class="viewport"><img id="preview" alt="摄像机画面" hidden><video id="media-video" controls playsinline hidden></video><p id="preview-placeholder"><span data-i18n="点击开启实时预览">点击开启实时预览</span></p></div>
+          <div class="controls"><button id="preview-toggle" type="button"><span data-i18n="开启预览">开启预览</span></button><button id="still" type="button"><span data-i18n="查看单张画面">查看单张画面</span></button><button id="photo" type="button"><span data-i18n="拍照并保存">拍照并保存</span></button><button id="record-start" class="primary" type="button"><span data-i18n="开始录制">开始录制</span></button><button id="record-stop" class="danger" type="button" hidden><span data-i18n="停止录制">停止录制</span></button></div>
+          <div class="event-controls">
+            <div><label for="event-sensitivity" data-i18n="抓拍灵敏度">抓拍灵敏度</label><select id="event-sensitivity"><option value="2" data-i18n="低">低</option><option value="5" selected data-i18n="中">中</option><option value="8" data-i18n="高">高</option></select></div>
+            <button id="event-start" type="button" data-i18n="开启事件抓拍 · 480p">开启事件抓拍 · 480p</button>
+            <button id="event-stop" class="danger" type="button" hidden data-i18n="停止事件抓拍">停止事件抓拍</button>
+          </div>
+          <p id="event-message" class="message" role="status" aria-live="polite" data-i18n="画面变化时保存独立片段；静止不保存。监测期间保持摄像头运行，退出登录后继续监测。">画面变化时保存独立片段；静止不保存。监测期间保持摄像头运行，退出登录后继续监测。</p>
+          <p id="action-message" class="message" role="status" aria-live="polite"></p>
+          <p class="message" data-i18n="事件监测与定时拍照不能同时开启，请先停止当前模式。">事件监测与定时拍照不能同时开启，请先停止当前模式。</p>
+        </section>
+        <aside class="metrics" aria-label="设备状态">
+          <div class="metric"><span><span data-i18n="芯片温度">芯片温度</span></span><strong id="temperature">—</strong><small><span data-i18n="ESP32-S3 内部传感器">ESP32-S3 内部传感器</span></small></div>
+          <div class="metric"><span><span data-i18n="SD 卡可用空间">SD 卡可用空间</span></span><strong id="sd-free">—</strong><small id="sd-total"><span data-i18n="正在读取">正在读取</span></small></div>
+          <div class="metric"><span><span data-i18n="网络">网络</span></span><strong id="network">—</strong><small id="lan-ip"><span data-i18n="本地连接">本地连接</span></small></div>
+          <div class="metric"><span><span data-i18n="运行时间">运行时间</span></span><strong id="uptime">—</strong><small id="memory"><span data-i18n="正在读取">正在读取</span></small></div>
+          <div class="metric"><span><span data-i18n="CPU 占用率">CPU 占用率</span></span><strong id="cpu-usage">—</strong><meter id="cpu-meter" min="0" max="100" value="0" aria-label="CPU 占用率"></meter><small id="cpu-detail"><span data-i18n="正在读取">正在读取</span></small></div>
+          <div class="metric"><span><span data-i18n="RAM 占用率">RAM 占用率</span></span><strong id="ram-usage">—</strong><meter id="ram-meter" min="0" max="100" value="0" aria-label="RAM 占用率"></meter><small id="ram-detail"><span data-i18n="正在读取">正在读取</span></small></div>
+        </aside>
+      </div>
+      <div class="device-footer"><span id="capture-format"><span data-i18n="640 × 480 · MJPEG · 16 kHz 单声道">640 × 480 · MJPEG · 16 kHz 单声道</span></span><button id="restart" class="quiet" type="button"><span data-i18n="重启设备">重启设备</span></button></div>
+      <section class="media-card" aria-labelledby="media-title">
+        <div class="heading"><h2 id="media-title"><span data-i18n="照片与录像">照片与录像</span></h2><button id="media-refresh" class="quiet" type="button"><span data-i18n="刷新">刷新</span></button></div>
+        <div class="media-filter"><label for="media-date"><span data-i18n="拍摄日期">拍摄日期</span></label><select id="media-date"></select><button id="media-older-dates" type="button" hidden><span data-i18n="更早日期">更早日期</span></button></div>
+        <div class="media-toolbar">
+          <label class="check-label"><input id="media-select-all" type="checkbox"><span data-i18n="选择已加载文件">选择已加载文件</span></label>
+          <span id="media-selection-count" class="message"></span>
+          <button id="media-delete-selected" class="danger" type="button" disabled data-i18n="删除所选">删除所选</button>
+          <button id="media-delete-all" class="danger" type="button" data-i18n="删除全部照片和录像">删除全部照片和录像</button>
+        </div>
+        <p id="media-message" class="message" role="status" aria-live="polite"><span data-i18n="登录后加载 SD 卡媒体。">登录后加载 SD 卡媒体。</span></p>
+        <ul id="media-list" class="media-list"></ul>
+        <button id="media-more" class="quiet" type="button" hidden><span data-i18n="加载更多">加载更多</span></button>
+        <p class="footnote"><span data-i18n="照片可直接预览。AVI 包含 MJPEG 视频和 PCM 音频，请下载后用兼容播放器打开。录制期间可浏览，结束保存后再下载录像。">照片可直接预览。AVI 包含 MJPEG 视频和 PCM 音频，请下载后用兼容播放器打开。录制期间可浏览，结束保存后再下载录像。</span></p>
+      </section>
+      <div class="settings-grid">
+      <details class="settings-card" id="capture-settings">
+        <summary><span data-i18n="画质、声音与性能">画质、声音与性能</span></summary>
+        <p class="message"><span data-i18n="照片与录像使用独立分辨率。JPEG 数值越低，画质越高，文件也越大。录像结束后再修改参数。">照片与录像使用独立分辨率。JPEG 数值越低，画质越高，文件也越大。录像结束后再修改参数。</span></p>
+        <form id="capture-form">
+          <div id="capture-fields" class="form-grid"></div>
+          <button id="capture-submit" class="primary" type="submit"><span data-i18n="保存参数">保存参数</span></button>
+          <button id="capture-defaults" class="quiet" type="button"><span data-i18n="恢复推荐参数">恢复推荐参数</span></button>
+        </form>
+        <p id="capture-message" class="message" role="status" aria-live="polite"></p>
+        <p class="footnote"><span data-i18n="240 MHz 是芯片官方最高频率。降低频率可能降低帧率并延长登录等待。数字增益同时放大声音与底噪；音量失真时降低增益。">240 MHz 是芯片官方最高频率。降低频率可能降低帧率并延长登录等待。数字增益同时放大声音与底噪；音量失真时降低增益。</span></p>
+        <p class="footnote"><span data-i18n="开启省电后，无预览、拍照或录像达到空闲时限会暂停摄像头与麦克风，并启用 Wi-Fi 节电。WireGuard 和管理页面保持可访问，下一次拍摄自动唤醒。">开启省电后，无预览、拍照或录像达到空闲时限会暂停摄像头与麦克风，并启用 Wi-Fi 节电。WireGuard 和管理页面保持可访问，下一次拍摄自动唤醒。</span></p>
+      </details>
+      <details class="settings-card" id="timelapse-panel">
+        <summary data-i18n="定时拍照">定时拍照</summary>
+        <p class="message" data-i18n="事件监测与定时拍照不能同时开启，请先停止当前模式。">事件监测与定时拍照不能同时开启，请先停止当前模式。</p>
+        <form id="timelapse-form">
+          <label for="tl-preset" data-i18n="拍照间隔">拍照间隔</label>
+          <select id="tl-preset"><option value="60">1 min</option><option value="300">5 min</option><option value="900" selected>15 min</option><option value="1800">30 min</option><option value="3600">1 h</option><option value="21600">6 h</option><option value="43200">12 h</option><option value="86400">24 h</option><option value="custom" data-i18n="自定义">自定义</option></select>
+          <label for="tl-interval" data-i18n="自定义间隔（秒）">自定义间隔（秒）</label>
+          <input id="tl-interval" type="number" min="5" max="604800" step="1" value="900" required>
+          <label for="tl-immediate"><input id="tl-immediate" type="checkbox" checked><span data-i18n="开始后立即拍第一张">开始后立即拍第一张</span></label>
+          <button id="tl-start" class="primary" type="submit" data-i18n="开始定时拍照">开始定时拍照</button>
+          <button id="tl-stop" class="danger" type="button" data-i18n="停止定时拍照">停止定时拍照</button>
+        </form>
+        <p class="message" data-i18n="间隔为 5 秒至 7 天。每次开始创建独立文件夹；重启后停止。运行期间锁定拍摄参数。">间隔为 5 秒至 7 天。每次开始创建独立文件夹；重启后停止。运行期间锁定拍摄参数。</p>
+        <p id="tl-message" class="message" role="status" aria-live="polite"></p>
+        <button id="tl-refresh" type="button" data-i18n="刷新拍照文件夹">刷新拍照文件夹</button>
+        <label for="tl-sessions" data-i18n="拍照文件夹">拍照文件夹</label><select id="tl-sessions"></select>
+        <button id="tl-more-sessions" type="button" hidden data-i18n="加载更多">加载更多</button>
+        <p id="tl-session-details" class="message"></p>
+        <button id="tl-delete" class="danger" type="button" data-i18n="删除整个拍照文件夹">删除整个拍照文件夹</button>
+        <div id="tl-files" class="media-list"></div>
+        <button id="tl-more-files" type="button" hidden data-i18n="加载更多">加载更多</button>
+      </details>
+      <details class="settings-card" id="transcode-panel">
+        <summary data-i18n="后台视频转换">后台视频转换</summary>
+        <label for="transcode-enabled"><input id="transcode-enabled" type="checkbox"><span data-i18n="空闲时转换 AVI 为 H.264 MP4">空闲时转换 AVI 为 H.264 MP4</span></label>
+        <p class="message" data-i18n="保留原分辨率、时长和声音。MP4 校验成功后删除 AVI，即使 MP4 更大。事件监测和定时拍照期间暂停转换。">保留原分辨率、时长和声音。MP4 校验成功后删除 AVI，即使 MP4 更大。事件监测和定时拍照期间暂停转换。</p>
+        <p id="transcode-message" class="message" role="status" aria-live="polite"></p>
+      </details>
+      <details class="settings-card" id="ble-panel">
+        <summary data-i18n="蓝牙管理">蓝牙管理</summary>
+        <button id="ble-show" type="button" data-i18n="查看配对 PIN">查看配对 PIN</button>
+        <button id="ble-rotate" type="button" data-i18n="更换 PIN 并清除配对">更换 PIN 并清除配对</button>
+        <p id="ble-message" class="message" role="status" aria-live="polite"></p>
+        <p class="message" data-i18n="使用 nRF Connect 配对后管理设备。PIN 与管理员密码独立；USB 输入 BLE PIN 可找回。">使用 nRF Connect 配对后管理设备。PIN 与管理员密码独立；USB 输入 BLE PIN 可找回。</p>
+      </details>
+      <details class="settings-card">
+        <summary>WireGuard</summary>
+        <p class="message"><span data-i18n="导入单个服务器配置，先测试远程访问。全隧道可在连接成功后单独开启；更改需要局域网确认，未确认会自动回退。">导入单个服务器配置，先测试远程访问。全隧道可在连接成功后单独开启；更改需要局域网确认，未确认会自动回退。</span></p>
+        <form id="wg-mode-form">
+          <label for="wg-mode"><span data-i18n="连接模式">连接模式</span></label>
+          <select id="wg-mode"><option value="remote_access" data-i18n="远程访问">远程访问</option><option value="full_tunnel" data-i18n="IPv4 全隧道">IPv4 全隧道</option></select>
+          <button id="wg-mode-submit" type="submit"><span data-i18n="测试连接模式">测试连接模式</span></button>
+        </form>
+        <p id="wg-route" class="message" role="status" aria-live="polite"></p>
+        <p class="footnote"><span data-i18n="远程访问保留普通上网。全隧道通过服务器上网，断线时阻止公网直连，局域网仍可访问。需要 0.0.0.0/0、DNS IPv4、MTU 不超过 1420，以及服务器转发和 NAT。IPv6 不进入隧道；全隧道下阻止 IPv6 公网直连。">远程访问保留普通上网。全隧道通过服务器上网，断线时阻止公网直连，局域网仍可访问。需要 0.0.0.0/0、DNS IPv4、MTU 不超过 1420，以及服务器转发和 NAT。IPv6 不进入隧道；全隧道下阻止 IPv6 公网直连。</span></p>
+        <form id="wg-form">
+          <label for="wg-file"><span data-i18n="WireGuard 配置文件（可选）">WireGuard 配置文件（可选）</span></label><input id="wg-file" type="file" accept=".conf,.txt">
+          <label for="wg-config"><span data-i18n="WireGuard 配置内容">WireGuard 配置内容</span></label><textarea id="wg-config" rows="8" required maxlength="4096" spellcheck="false" autocomplete="off"></textarea>
+          <button id="wg-submit" type="submit"><span data-i18n="导入并测试远程访问">导入并测试远程访问</span></button>
+        </form>
+        <details class="wg-fields">
+          <summary><span data-i18n="逐项填写配置">逐项填写配置</span></summary>
+          <form id="wg-fields-form">
+            <label for="wg-address"><span data-i18n="设备 IPv4 地址 / 前缀">设备 IPv4 地址 / 前缀</span></label><input id="wg-address" required maxlength="43" placeholder="10.0.0.2/24" autocomplete="off">
+            <label for="wg-private-key"><span data-i18n="设备私钥">设备私钥</span></label><input id="wg-private-key" type="password" required minlength="44" maxlength="44" autocomplete="off" spellcheck="false">
+            <label for="wg-public-key"><span data-i18n="服务器公钥">服务器公钥</span></label><input id="wg-public-key" type="password" required minlength="44" maxlength="44" autocomplete="off" spellcheck="false">
+            <label for="wg-preshared-key"><span data-i18n="预共享密钥（可选）">预共享密钥（可选）</span></label><input id="wg-preshared-key" type="password" maxlength="44" autocomplete="off" spellcheck="false">
+            <label for="wg-endpoint"><span data-i18n="服务器主机名或 IPv4 地址">服务器主机名或 IPv4 地址</span></label><input id="wg-endpoint" required maxlength="253" autocomplete="off">
+            <label for="wg-port"><span data-i18n="服务器 UDP 端口">服务器 UDP 端口</span></label><input id="wg-port" type="number" required min="1" max="65535" value="51820">
+            <label for="wg-allowed-ips"><span data-i18n="AllowedIPs（IPv4 CIDR，以逗号分隔）">AllowedIPs（IPv4 CIDR，以逗号分隔）</span></label><input id="wg-allowed-ips" required maxlength="255" placeholder="10.0.0.0/24" autocomplete="off">
+            <label for="wg-dns"><span data-i18n="DNS IPv4（全隧道必填）">DNS IPv4（全隧道必填）</span></label><input id="wg-dns" maxlength="15" autocomplete="off">
+            <label for="wg-mtu">MTU</label><input id="wg-mtu" type="number" required min="576" max="1500" value="1420">
+            <label for="wg-keepalive"><span data-i18n="Keepalive 秒数（0 为关闭）">Keepalive 秒数（0 为关闭）</span></label><input id="wg-keepalive" type="number" required min="0" max="65535" value="0">
+            <button id="wg-fields-submit" type="submit"><span data-i18n="测试这些配置">测试这些配置</span></button>
+          </form>
+        </details>
+        <p id="wg-message" class="message" role="status" aria-live="polite"></p>
+        <p id="wg-counters" class="message"></p>
+        <button id="wg-restart" class="quiet" type="button"><span data-i18n="重连 WireGuard">重连 WireGuard</span></button>
+        <button id="wg-disable" class="quiet" type="button"><span data-i18n="测试关闭 WireGuard">测试关闭 WireGuard</span></button>
+        <button id="wg-clear" class="quiet" type="button"><span data-i18n="清除 WireGuard 配置">清除 WireGuard 配置</span></button>
+        <p class="footnote"><span data-i18n="密钥不会回显或导出。导入后请在下方 Wi-Fi 设置中，从设备的局域网地址确认试运行；未确认会自动回退。">密钥不会回显或导出。导入后请在下方 Wi-Fi 设置中，从设备的局域网地址确认试运行；未确认会自动回退。</span></p>
+      </details>
+      <details class="settings-card">
+        <summary><span data-i18n="Wi-Fi 设置">Wi-Fi 设置</span></summary>
+        <p class="message"><span data-i18n="新网络会先试运行。请在连接成功后确认；失败时自动恢复当前配置。">新网络会先试运行。请在连接成功后确认；失败时自动恢复当前配置。</span></p>
+        <form id="network-form">
+          <label for="network-ssid"><span data-i18n="新的 2.4 GHz Wi-Fi 名称">新的 2.4 GHz Wi-Fi 名称</span></label><input id="network-ssid" required maxlength="32" autocomplete="off">
+          <label for="network-password"><span data-i18n="Wi-Fi 密码">Wi-Fi 密码</span></label><input id="network-password" type="password" maxlength="63" autocomplete="off">
+          <button id="network-submit" type="submit"><span data-i18n="测试新网络">测试新网络</span></button>
+        </form>
+        <p id="network-message" class="message" role="status" aria-live="polite"></p>
+        <a id="network-lan-link" class="button-link" hidden><span data-i18n="在新网络地址登录后确认">在新网络地址登录后确认</span></a>
+        <button id="network-confirm" type="button" hidden><span data-i18n="确认此网络可用">确认此网络可用</span></button>
+        <button id="network-cancel" class="quiet" type="button" hidden><span data-i18n="取消试运行">取消试运行</span></button>
+      </details>
+      <details class="settings-card" id="account-settings">
+        <summary><span data-i18n="账户与安全">账户与安全</span></summary>
+        <p class="message"><span data-i18n="修改管理员密码后，所有已登录设备需要重新登录。Wi-Fi 和 WireGuard 配置会保留。">修改管理员密码后，所有已登录设备需要重新登录。Wi-Fi 和 WireGuard 配置会保留。</span></p>
+        <form id="account-form">
+          <label for="account-current"><span data-i18n="当前密码">当前密码</span></label><input id="account-current" type="password" required maxlength="128" autocomplete="current-password">
+          <label for="account-new"><span data-i18n="新密码">新密码</span></label><input id="account-new" type="password" required maxlength="128" autocomplete="new-password">
+          <label for="account-confirm"><span data-i18n="确认新密码">确认新密码</span></label><input id="account-confirm" type="password" required maxlength="128" autocomplete="new-password">
+          <p class="message"><span data-i18n="管理员密码需至少 10 个字符，最多 128 个 UTF-8 字节。">管理员密码需至少 10 个字符，最多 128 个 UTF-8 字节。</span></p>
+          <button id="account-submit" class="primary" type="submit"><span data-i18n="修改密码">修改密码</span></button>
+        </form>
+        <p id="account-message" class="message" role="status" aria-live="polite"></p>
+      </details>
+      <details class="settings-card">
+        <summary><span data-i18n="固件更新">固件更新</span></summary>
+        <p class="message"><span data-i18n="选择本项目生成的 firmware.bin，并提供配套 SHA-256。更新时摄像机暂停，完成后自动重启，请重新登录。">选择本项目生成的 firmware.bin，并提供配套 SHA-256。更新时摄像机暂停，完成后自动重启，请重新登录。</span></p>
+        <form id="ota-form">
+          <label for="ota-file"><span data-i18n="固件文件">固件文件</span></label><input id="ota-file" type="file" accept=".bin" required>
+          <label for="ota-digest-file"><span data-i18n="配套校验文件（可选）">配套校验文件（可选）</span></label><input id="ota-digest-file" type="file" accept=".sha256,.txt">
+          <label for="ota-digest"><span data-i18n="SHA-256 校验值">SHA-256 校验值</span></label><input id="ota-digest" required minlength="64" maxlength="64" pattern="[a-f0-9]{64}" autocomplete="off" spellcheck="false">
+          <button id="ota-submit" type="submit"><span data-i18n="上传并更新">上传并更新</span></button>
+        </form>
+        <progress id="ota-progress" max="100" value="0" aria-label="固件上传进度" hidden></progress>
+        <p id="ota-message" class="message" role="status" aria-live="polite"></p>
+      </details>
+      </div>
+    </section>
+  </main>
+  <footer><span data-i18n="小巧的设备。清晰的视野。">小巧的设备。清晰的视野。</span></footer>
+</body>
+</html>
