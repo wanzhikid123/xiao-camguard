@@ -1,13 +1,17 @@
-# 480p independent event clips
+# 480p event-session video
 
-Implementation scope, authorized 2026-10-04: independent event clips at
-640 × 480, plus media selection and bulk deletion. Manual recording remains
-available after disarming. No GitHub publication is part of this change.
+Current behavior (2026-10-09): one 640 × 480 video per monitoring session,
+containing all motion events between start and stop. Manual video is limited
+to 640 × 480; photo resolution remains independent. The acceptance records
+below dated 2026-10-04 describe the earlier separate-clip implementation.
+Current reproduction and acceptance: [EVENT_AVI_CLOCK.md](EVENT_AVI_CLOCK.md).
+Initial idle failure: [EVENT_SESSION_FIX.md](EVENT_SESSION_FIX.md).
 
 ## Event lifecycle
 
 - Arm explicitly with sensitivity 1–10 (default 5); reboot starts disarmed.
-- Temporarily use VGA at a target 15 FPS; retain the user's stored capture
+- Temporarily use VGA at a target 15 FPS while monitoring and 5 FPS while
+  saving timestamped event frames; retain the user's stored capture
   settings and restore them when disarmed. Parameters and saved photos are
   blocked while armed; preview and status remain available. Mode guards remain
   active until sensor resolution/FPS restoration finishes.
@@ -17,20 +21,46 @@ available after disarming. No GitHub publication is part of this change.
 - Save ordinary MJPEG video and 16 kHz mono PCM only during an event.
   Hold candidate quiet video and matching audio in bounded PSRAM buffers.
   If motion resumes within one second, append both buffers; otherwise discard
-  that quiet tail and finalize a separate clip. Detection has 250 ms granularity.
+  that quiet tail, pause audio/video writing, and continue monitoring into the
+  same file. Detection is gated at 250 ms; processing can make it slower.
+  Stop monitoring to finalize
+  the session; a session with no motion creates no video.
 - Keep brief events instead of applying the manual recorder's five-second
   minimum. Use random suffixes to avoid same-second naming collisions.
-- Split prolonged activity at five minutes / 4,000 frames. Stop safely on
-  storage, audio or repeated decode failures. A full tail buffer ends the
-  current clip at the start of the quiet interval and resumes monitoring.
+- Spool the session AVI index to SD instead of imposing the old 4,000-frame
+  split or retaining a growing RAM index. Stop and finalize the single file
+  at the AVI 1.0 32-bit size/timing boundary; never silently split it. Stop
+  safely on storage, audio or repeated decode failures. A full tail buffer
+  ends the current event at the quiet boundary and resumes monitoring.
+- Before writing each MJPEG chunk, decode the JPEG, paint its actual capture
+  date/time at the top right (white on black), and encode it again. AVI already
+  displays the clock, even with conversion disabled. Held frames use their
+  original capture time. Version-2 APP15 metadata retains that time for inspection.
+  MP4 conversion only transcodes these existing pixels; it does not draw time.
+  Removed quiet gaps appear as wall-clock jumps. The clock uses the device
+  timezone, as existing filenames do.
 - Arming prevents unattended sensor sleep. Logging out leaves monitoring on;
   disarm explicitly to return to normal idle saving. This saves storage rather
   than providing deep sleep. No person recognition or pre-roll is included.
 
 Detector images and the bounded video/audio tail use approximately 600 KiB of
-PSRAM in addition to the camera and existing AVI index. These allocations are
+PSRAM in addition to the camera. The event index uses a hidden temporary SD
+file which is removed on finalization. Detector/tail allocations are
 released when disarmed. Sampling uses actual JPEG decode even in the integration
 fixture, which then substitutes only its small grayscale detector input.
+Clock rendering owns full-frame JPEG buffers and codec handles, allocated once
+per monitoring session and released before idle conversion. The pinned JPEG
+component's private workspaces use PSRAM, preserving internal RAM for the live
+camera, PDM and TCP responses. Generic SDK allocation policy is unchanged.
+Event recording targets 5 FPS; actual rate includes the JPEG repaint cost.
+Monitoring returns to a 15 FPS target after each event.
+
+There is no fixed five-minute or other minute-based event limit. The session
+stops at the AVI 1.0 approximately 4 GiB size/timing boundary, 4,294,967 frames,
+or storage/error protection. PCM-containing files normally reach the size
+boundary first; a frame-limit calculation is not a recording-time promise.
+The web download handler independently supports files up to 2 GiB minus one
+byte. Long sessions beyond that size are not established as downloadable.
 
 ## Bulk deletion
 
@@ -139,3 +169,19 @@ Failed reports and distinct candidate images remain private evidence, including
 `events-fixture-{first,auth-fixed,lan-fixed,timing-fixed}` and
 `event-media-browser-{first,auth-fixed,csp-fixed,install-order}`. Serial captures
 remain separate from each report; no failure is overwritten by the green runs.
+
+## Idle conversion regression — 2026-10-08
+
+A live idle device reported three `h264_init_failed` failures and a disabled
+conversion switch. The same source converted after reboot. A six-second normal
+VGA recording then reproduced the initialization failure at frame zero, while
+retaining roughly 372 KB of PSRAM. The completed AVI index accounted for
+320,032 bytes; `buildAviHdr` now releases that index after it has been written.
+The next recording allocates its own index again. The source AVI remains
+protected by the existing transactional MP4 publication/validation rules.
+
+The regression fixture `xiao-appliance-event-codec-test` combines detector
+scene substitution with an exact-source conversion allowlist. It must never
+ship. Run `experiments/hardware/test_event_session.py` with explicit fixture,
+production restore and evidence paths; it preserves original media and removes
+only its owned files. Live acceptance results are recorded separately.

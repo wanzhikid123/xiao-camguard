@@ -11,12 +11,16 @@ struct ApplianceCodecReport {
 };
 using ApplianceCodecAbort=bool (*)();
 using ApplianceCodecProgress=void (*)(const ApplianceCodecReport&);
+struct ApplianceCodecMemory {uint32_t initialPsram=0,minimumPsram=0,minimumLargestBlock=0,rawBytes=0,blockBytes=0;};
+ApplianceCodecMemory applianceCodecMemory();
+bool applianceCodecResourceUnavailable(const ApplianceCodecReport& report);
 // Owner calls on its low-priority task. Does not publish or remove the source.
 bool applianceConvertAvi(const char* source,const char* temporary,ApplianceCodecReport& report,
                          ApplianceCodecAbort abort,ApplianceCodecProgress progress=nullptr);
 bool applianceValidateMp4(const char* path,const ApplianceCodecReport& expected,ApplianceCodecAbort abort=nullptr);
 bool applianceInspectAvi(const char* path,ApplianceCodecReport& report,ApplianceCodecAbort abort=nullptr);
 #if defined(XIAO_APPLIANCE_CODEC_TEST)
+bool applianceCodecTestMemoryPressure();
 bool applianceCodecTestBusy();
 void applianceCodecTestCancel();
 bool applianceCodecTestPad(const char* path,ApplianceCodecReport& report,ApplianceCodecAbort abort);

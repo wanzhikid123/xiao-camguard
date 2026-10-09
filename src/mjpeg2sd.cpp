@@ -573,7 +573,14 @@ static void captureTask(void* parameter) {
     ulNotifiedValue = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     if (ulNotifiedValue > FB_CNT) ulNotifiedValue = FB_CNT; // prevent too big queue if FPS excessive
     // may be more than one isr outstanding if the task delayed by SD write or jpeg decode
-    while (ulNotifiedValue-- > 0) processFrame();
+    while (ulNotifiedValue-- > 0) {
+#if defined(XIAO_APPLIANCE)
+      // Event JPEG work can saturate the frame queue. HTTP and PDM must be
+      // able to preempt it; restore the normal priority outside monitoring.
+      vTaskPrioritySet(nullptr,applianceEventsArmed()?HTTP_PRI-1:CAPTURE_PRI);
+#endif
+      processFrame();
+    }
   }
   vTaskDelete(NULL);
 }

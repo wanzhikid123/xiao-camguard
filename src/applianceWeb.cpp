@@ -19,6 +19,7 @@
 #include <ESPmDNS.h>
 
 namespace {
+constexpr char deviceTimezone[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 appliance::HttpAuth auth;
 std::atomic<bool> resetPending{false};
 bool mutationBusy(){return applianceMaintenance()||resetPending.load();}
@@ -98,6 +99,10 @@ esp_err_t status(httpd_req_t* req) {
   applianceTimelapseStatus(timelapse,sizeof(timelapse));applianceConversionStatus(conversion,sizeof(conversion));applianceBleStatus(ble,sizeof(ble));
   IPAddress ip = WiFi.localIP();
   snprintf(lan, sizeof(lan), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+  const time_t clockEpoch = getEpoch();
+  struct tm localClock = {}; char clockText[20] = {};
+  localtime_r(&clockEpoch, &localClock);
+  strftime(clockText, sizeof(clockText), "%Y-%m-%d %H:%M:%S", &localClock);
   snprintf(response, sizeof(response),
     "{\"cameraReady\":%s,\"startupFailed\":%s,\"recording\":%s,\"recordRequested\":%s,"
     "\"fps\":%u,\"audioEnabled\":%s,\"audioInputRunning\":%s,\"temperatureC\":%.1f,\"uptimeSeconds\":%lu,"
@@ -105,6 +110,7 @@ esp_err_t status(httpd_req_t* req) {
     "\"cpuUsageAvailable\":%s,\"cpu0Percent\":%.1f,\"cpu1Percent\":%.1f,\"cpuMHz\":%u,\"captureIdle\":%s,\"captureBusy\":%s,"
     "\"cameraSensorSleeping\":%s,\"lastWakeFrameMs\":%lu,"
     "\"videoWidth\":%u,\"videoHeight\":%u,\"micGain\":%d,\"timeSynchronized\":%s,"
+    "\"timezone\":\"%s\",\"localTime\":\"%s\",\"epochSeconds\":%lld,"
     "\"sdReady\":%s,\"sdTotalBytes\":%llu,\"sdFreeBytes\":%llu,"
     "\"wifiConnected\":%s,\"lanIP\":\"%s\",\"rssi\":%d,"
     "\"configReady\":%s,\"configRevision\":%lu,\"wireguardConfigured\":%s,\"wireguardRunning\":%s,\"maintenance\":%s,\"events\":%s,\"timelapse\":%s,\"conversion\":%s,\"ble\":%s}",
@@ -117,6 +123,7 @@ esp_err_t status(httpd_req_t* req) {
     applianceCaptureIdle() ? "true" : "false", applianceCaptureBusy() ? "true" : "false",
     applianceCameraSensorSleeping() ? "true" : "false", (unsigned long)applianceLastWakeFrameMs(),
     frameData[fsizePtr].frameWidth, frameData[fsizePtr].frameHeight, micGain, timeSynchronized ? "true" : "false",
+    timezone, clockText, (long long)clockEpoch,
     sdReady ? "true" : "false", (unsigned long long)total, (unsigned long long)(total >= used ? total - used : 0),
     WiFi.status() == WL_CONNECTED ? "true" : "false", lan, WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
     configReady ? "true" : "false", (unsigned long)configStatus.activeRevision,
@@ -200,6 +207,11 @@ bool appliancePrepare() {
   allowAP = true; // Fixture only; production AP is owned by NetworkService.
   doGetExtIP = false;
   dataFilesChecked = true; // Embedded UI has no SD asset/download dependency.
+  // NTP sets UTC; filenames and visible event clocks use Berlin local time.
+  // Replace the legacy SD value in RAM too: prepRecording reloads that vector.
+  strlcpy(timezone, deviceTimezone, FILE_NAME_LEN);
+  updateConfigVect("timezone", timezone);
+  configTzTime(timezone, ntpServer);
   char frameSize[4];
   snprintf(frameSize, sizeof(frameSize), "%u", (unsigned)FRAMESIZE_VGA);
   updateConfigVect("framesize", frameSize);

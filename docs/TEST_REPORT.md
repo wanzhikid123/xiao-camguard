@@ -1,4 +1,15 @@
-# Test report — 2026-10-04
+# Test report
+
+The 2026-10-09 NTP/UTC-versus-Berlin clock correction, normal firmware install,
+saved-photo and short-video validation are tracked in [CLOCK_SYNC.md](CLOCK_SYNC.md).
+
+The 2026-10-09 clock overflow, block JPEG/I420 and resource admission regression
+is tracked in [CODEC_OPTIMIZATION.md](CODEC_OPTIMIZATION.md).
+
+The 2026-10-09 video limit, single event-session AVI, visible AVI clock and
+pure idle H.264 conversion are tracked in [EVENT_AVI_CLOCK.md](EVENT_AVI_CLOCK.md).
+The initial idle failure is recorded in [EVENT_SESSION_FIX.md](EVENT_SESSION_FIX.md).
+The 2026-10-04 results below are historical evidence for the earlier firmware.
 
 BLE / interval photos / MP4 is implemented. Current evidence and
 remaining checks are tracked in [IMPLEMENTATION_SUMMARY](../IMPLEMENTATION_SUMMARY.md).

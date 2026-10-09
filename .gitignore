@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
 *.ino.cpp
 .vscode/
 .idea/
@@ -21,6 +22,8 @@ secrets.*
 *.pem
 *.p12
 *.pfx
+*.p8
+*.p12.bak
 *.local.*
 *.log
 secrets.h
@@ -33,12 +36,24 @@ nvs-dump*
 credentials*
 .env
 .env.*
+.env-*
+*.env
 !.env.example
+!**/.env.example
+.auth/
+.oauth/
+*.har
+*.pcap
+*.pcapng
 
 # Private device media, flash/NVS images and acceptance artifacts
 *.bin
 *.elf
 *.map
+*.hex
+*.uf2
+*.dump
+*.dmp
 *.avi
 *.mp4
 *.wav
@@ -55,8 +70,11 @@ credentials*
 /timelapse/
 /backups/
 /reports/
+/screenshots/
 test-results/
 playwright-report/
 coverage/
+.coverage
+htmlcov/
 Thumbs.db
 .DS_Store

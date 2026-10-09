@@ -101,6 +101,7 @@ static SemaphoreHandle_t applianceWavMutex=nullptr;
 static uint8_t* applianceAudioTail=nullptr;
 static size_t applianceAudioTailBytes=0;
 static bool applianceHoldingAudio=false, applianceWavHealthy=true;
+static bool appliancePausedAudio=false;
 constexpr size_t APPLIANCE_AUDIO_TAIL_BYTES=65536;
 class ApplianceWavLock {
 public:
@@ -129,6 +130,7 @@ bool applianceAudioTailFinish(bool keep){
   applianceHoldingAudio=false;applianceAudioTailBytes=0;return applianceWavHealthy;
 }
 bool applianceAudioRecordHealthy(){ApplianceWavLock lock;return micRecording&&applianceWavHealthy;}
+void applianceAudioRecordPause(bool paused){ApplianceWavLock lock;appliancePausedAudio=paused;}
 #endif
 #endif
 #ifdef ISVC
@@ -396,7 +398,7 @@ void browserMicInput(uint8_t* wsMsg, size_t wsMsgLen) {
 
 void startAudioRecord() {
 #if defined(XIAO_APPLIANCE)
-  ApplianceWavLock lock;applianceWavHealthy=true;applianceHoldingAudio=false;applianceAudioTailBytes=0;
+  ApplianceWavLock lock;applianceWavHealthy=true;applianceHoldingAudio=false;appliancePausedAudio=false;applianceAudioTailBytes=0;
 #endif
   // called from openAvi() in mjpeg2sd.cpp
   // start audio recording and write recorded audio to SD card as WAV file 
@@ -459,7 +461,7 @@ static void camActions() {
 #if defined(XIAO_APPLIANCE)
       {
         ApplianceWavLock lock;
-        if(micRecording) {
+        if(micRecording&&!appliancePausedAudio) {
           if(applianceHoldingAudio) {
             if(applianceAudioTail&&bytesRead<=APPLIANCE_AUDIO_TAIL_BYTES-applianceAudioTailBytes) {
               memcpy(applianceAudioTail+applianceAudioTailBytes,sampleBuffer,bytesRead);applianceAudioTailBytes+=bytesRead;

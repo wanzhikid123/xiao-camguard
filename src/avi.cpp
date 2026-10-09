@@ -173,6 +173,13 @@ void buildAviHdr(uint8_t FPS, uint8_t frameType, uint16_t frameCnt, bool isTL, u
   // reset state for next recording
   moviSize[isTL] = idxPtr[isTL] = 0;
   idxOffset[isTL] = 4; // 4 byte offset
+#if defined(XIAO_APPLIANCE)
+  // The finalized index has already been written to SD. Retaining its
+  // maxFrames-sized buffer starves the next idle VGA H.264 initialization.
+  // prepAviIndex allocates a fresh index when another recording starts.
+  // The legacy AVI timelapse caller writes its index after this header.
+  if(!isTL){free(idxBuf[0]);idxBuf[0]=nullptr;}
+#endif
 }
 
 void buildAviIdx(size_t dataSize, bool isVid, bool isTL) {

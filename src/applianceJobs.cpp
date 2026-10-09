@@ -14,7 +14,7 @@
 #include "cJSON.h"
 #include "esp_heap_caps.h"
 
-#if defined(XIAO_APPLIANCE_AUTH_TEST) || defined(XIAO_APPLIANCE_EVENT_TEST) || defined(XIAO_APPLIANCE_OTA_ROLLBACK_TEST) \
+#if defined(XIAO_APPLIANCE_AUTH_TEST) || (defined(XIAO_APPLIANCE_EVENT_TEST) && !defined(XIAO_APPLIANCE_CODEC_TEST)) || defined(XIAO_APPLIANCE_OTA_ROLLBACK_TEST) \
   || defined(XIAO_APPLIANCE_SD_ABSENT_TEST) || defined(XIAO_APPLIANCE_WG_TEARDOWN_TEST) \
   || defined(XIAO_APPLIANCE_FULL_TUNNEL_TEST) || defined(XIAO_APPLIANCE_FULL_POLICY_TEST)
 #define APPLIANCE_NO_HISTORY_CONVERSION
@@ -141,7 +141,7 @@ void owner(void*){
           converted=valid&&!abort()&&SD.remove(next);if(converted)SD.remove(journal);}
       }else converted=false;
       if(!converted)SD.remove(temporary);
-      outcome=converted?"completed":!strcmp(report.error,"aborted")?"paused":!strcmp(report.error,"unsupported_source_resolution")?"unsupported":"failed";
+      outcome=converted?"completed":(!strcmp(report.error,"aborted")||applianceCodecResourceUnavailable(report))?"paused":!strcmp(report.error,"unsupported_source_resolution")?"unsupported":"failed";
     }
     setCpuFrequencyMhz(cpu);
     bool protect=false;

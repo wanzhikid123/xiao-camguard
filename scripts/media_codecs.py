@@ -33,6 +33,22 @@ for original in (h/'sw/libs/esp32s3/libopenh264.a',a/'esp_audio_codec/lib/esp32s
             str(original),str(target)],check=True)
         stamp.write_text(digest,encoding='ascii')
 env.Append(LIBPATH=[str(adapted)],LIBS=names)
+# JPEG runs with the live camera, unlike the idle H.264 worker. Its preferred
+# internal workspaces exhausted DRAM needed by TCP responses. Adapt only this
+# pinned SDK archive's private allocation calls; never change SDK-wide policy.
+sdk=Path(env.PioPlatform().get_package_dir('framework-arduinoespressif32-libs'))
+jpeg=sdk/env.BoardConfig().get('build.mcu')/'lib/libesp_new_jpeg.a'
+jpeg_target=adapted/'libappliance_jpeg.a'
+jpeg_stamp=jpeg_target.with_suffix('.sha256')
+jpeg_digest=hashlib.sha256(jpeg.read_bytes()+b'jpeg-psram-allocator-v1').hexdigest()
+if not jpeg_target.exists() or not jpeg_stamp.exists() or jpeg_stamp.read_text()!=jpeg_digest:
+    subprocess.run([str(objcopy),'--redefine-sym','heap_caps_calloc_prefer=appliance_jpeg_calloc_prefer',
+        '--redefine-sym','heap_caps_aligned_calloc=appliance_jpeg_aligned_calloc',
+        str(jpeg),str(jpeg_target)],check=True)
+    jpeg_stamp.write_text(jpeg_digest,encoding='ascii')
+# Select the adapted component before the SDK's unchanged copy. Linking the
+# entire component together preserves the encoder/decoder's matching ABI.
+env.Prepend(LIBS=['appliance_jpeg'])
 codec_env = env.Clone()
 codec_env.Append(CPPDEFINES=['HAVE_ESP32S3'])
 wrappers = codec_env.BuildLibrary('$BUILD_DIR/media-encoder', str(h), src_filter='-<*> '

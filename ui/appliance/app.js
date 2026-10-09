@@ -232,8 +232,8 @@ async function refreshStatus(generation) {
     $('event-stop').disabled=busy;$('event-sensitivity').disabled=Boolean(eventActive)||busy;
     const event = status.events;
     if(event) message('event-message',event.error!=='none'?t('抓拍状态：{error}',{error:event.error}):eventActive
-      ?t(status.recording?(event.quietPending?'正在确认静止；空画面尾部不会保存。':'● 正在保存事件片段 · 480p'):'● 正在监测画面 · 480p')+' '+t('本次启动已保存 {count} 个事件。',{count:event.savedClips})
-      :t('画面变化时保存独立片段；静止不保存。监测期间保持摄像头运行，退出登录后继续监测。'),event.error!=='none');
+      ?t(status.recording?(event.quietPending?'正在确认静止；空画面尾部不会保存。':'● 正在录入同一个事件视频 · 480p'):'● 正在监测画面 · 480p')+' '+t('本次监测已录入 {count} 个事件。',{count:event.sessionEvents||0})
+      :t('一次监测合成一个视频，只保存运动片段；停止后生成文件，AVI 右上角显示实际事件时间，MP4 仅转码。退出登录后继续监测。'),event.error!=='none');
     for (const button of $('media-list').querySelectorAll('[data-delete],[data-rename]')) button.disabled = requested||mediaBusy;
     updateMediaSelection();
     for (const link of $('media-list').querySelectorAll('[data-video]')) link.setAttribute('aria-disabled', String(requested));

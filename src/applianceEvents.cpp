@@ -8,8 +8,12 @@
 #include "applianceTimelapse.h"
 #include "applianceJobs.h"
 #include <EventMotion.h>
+#include <EventTimestamp.h>
 #include <HttpAuth.h>
 #include "jpeg_decoder.h"
+#include "esp_jpeg_dec.h"
+#include "esp_jpeg_enc.h"
+#include "esp_heap_caps.h"
 #include "esp_random.h"
 #include "cJSON.h"
 #include <atomic>
@@ -20,21 +24,57 @@ extern SemaphoreHandle_t aviMutex;
 
 namespace {
 constexpr size_t PIXELS=80*60, TAIL_BYTES=512*1024, TAIL_FRAMES=32;
-constexpr uint32_t SAMPLE_MS=250, QUIET_MS=1000, SETTLE_MS=2000, MAX_CLIP_MS=300000;
+constexpr uint32_t SAMPLE_MS=250, QUIET_MS=1000, SETTLE_MS=2000;
 constexpr const char* TEMP="/event-current.avi";
+constexpr const char* INDEX_TEMP="/event-current.index";
 std::atomic<bool> requested{false}, armed{false}, tailStatus{false};
 std::atomic<unsigned> sensitivity{5}, score{0}, saved{0}, decodeMs{0};
 std::atomic<const char*> error{"none"};
 uint8_t *rgb=nullptr, *gray=nullptr, *previous=nullptr, *tail=nullptr;
-struct Held { size_t offset, bytes; } held[TAIL_FRAMES];
+struct Held { size_t offset, bytes; char clock[20]; } held[TAIL_FRAMES];
 size_t tailBytes=0, heldCount=0;
 uint32_t sampled=0, settledAt=0, quietAt=0, started=0, spaceAt=0;
+uint32_t durationMs=0;
+std::atomic<uint32_t> sessionEvents{0};
 unsigned positives=0, failures=0;
 bool background=false, motion=false, holding=false;
-File file;
-uint16_t frames=0;
+File file,indexFile;
+uint32_t frames=0;
 char stamp[FILE_NAME_LEN]={};
 uint32_t eventId=0;
+struct TimestampJpeg {
+  static constexpr size_t RAW_BYTES=640*480*2, JPEG_BYTES=RAW_BYTES+65536;
+  uint8_t *raw=nullptr,*encoded=nullptr;
+  jpeg_dec_handle_t decoder=nullptr;
+  jpeg_enc_handle_t encoder=nullptr;
+  void release() {
+    if(encoder){jpeg_enc_close(encoder);encoder=nullptr;}
+    if(decoder){jpeg_dec_close(decoder);decoder=nullptr;}
+    free(raw);free(encoded);raw=encoded=nullptr;
+  }
+  bool begin() {
+    raw=static_cast<uint8_t*>(heap_caps_aligned_alloc(16,RAW_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+    encoded=static_cast<uint8_t*>(heap_caps_aligned_alloc(16,JPEG_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+    jpeg_dec_config_t decode={};decode.output_type=JPEG_PIXEL_FORMAT_CbYCrY;
+    jpeg_enc_config_t encode=DEFAULT_JPEG_ENC_CONFIG();
+    encode.width=640;encode.height=480;encode.src_type=JPEG_PIXEL_FORMAT_CbYCrY;
+    encode.subsampling=JPEG_SUBSAMPLE_422;encode.quality=90;
+    return raw&&encoded&&jpeg_dec_open(&decode,&decoder)==JPEG_ERR_OK
+      &&jpeg_enc_open(&encode,&encoder)==JPEG_ERR_OK;
+  }
+  bool render(const uint8_t*& jpeg,size_t& bytes,const char* clock) {
+    jpeg_dec_io_t io={};io.inbuf=const_cast<uint8_t*>(jpeg);io.inbuf_len=bytes;io.outbuf=raw;
+    jpeg_dec_header_info_t dimensions={};int rawBytes=0,encodedBytes=0;
+    if(!decoder||!encoder||jpeg_dec_parse_header(decoder,&io,&dimensions)!=JPEG_ERR_OK
+      ||dimensions.width!=640||dimensions.height!=480
+      ||jpeg_dec_get_outbuf_len(decoder,&rawBytes)!=JPEG_ERR_OK||rawBytes!=RAW_BYTES
+      ||jpeg_dec_process(decoder,&io)!=JPEG_ERR_OK
+      ||!appliance::drawEventClock(raw,640,480,clock)
+      ||jpeg_enc_process(encoder,raw,RAW_BYTES,encoded,JPEG_BYTES,&encodedBytes)!=JPEG_ERR_OK
+      ||encodedBytes<4||encodedBytes>JPEG_BYTES)return false;
+    jpeg=encoded;bytes=encodedBytes;return true;
+  }
+} timestampJpeg;
 #if defined(XIAO_APPLIANCE_EVENT_TEST)
 // RAM-only scene substitutions after actual VGA JPEG decode. No sensor,
 // account, camera configuration or existing media is changed by this fixture.
@@ -56,47 +96,80 @@ esp_err_t json(httpd_req_t* req,const char* status,const char* body) {
   appliance::HttpAuth::responseHeaders(req);httpd_resp_set_status(req,status);
   httpd_resp_set_type(req,"application/json");return httpd_resp_sendstr(req,body);
 }
-bool write(const void* data,size_t bytes) {
+bool writeTo(File& output,const void* data,size_t bytes) {
   const uint8_t* p=static_cast<const uint8_t*>(data);
-  while(bytes) {size_t n=std::min(bytes,size_t(8192));if(file.write(p,n)!=n)return false;p+=n;bytes-=n;}
+  while(bytes) {size_t n=std::min(bytes,size_t(8192));if(output.write(p,n)!=n)return false;p+=n;bytes-=n;}
   return true;
 }
-bool append(const uint8_t* jpeg,size_t bytes) {
-  const uint32_t padded=(bytes+3)&~3u;
+bool write(const void* data,size_t bytes){return writeTo(file,data,bytes);}
+bool index(const uint8_t* kind,uint32_t bytes,uint32_t offset) {
+  uint32_t entry[4]={0,kind==dcBuf?0x10u:0u,offset,bytes};memcpy(entry,kind,4);
+  return writeTo(indexFile,entry,sizeof(entry));
+}
+bool append(const uint8_t* jpeg,size_t bytes,const char* clock) {
+  uint8_t marker[appliance::EVENT_MARKER_BYTES];
+  if(bytes<4||jpeg[0]!=255||jpeg[1]!=216||!appliance::eventTimestampMarker(marker,clock))return false;
+  // Paint before writing the MJPEG chunk. Held frames retain their capture
+  // clock, and discarded quiet frames never pay the full JPEG encode cost.
+  if(!timestampJpeg.render(jpeg,bytes,clock))return false;
+  const uint32_t payload=bytes+sizeof(marker),padded=(payload+3)&~3u;
+  if(uint64_t(file.position())+padded+8+uint64_t(frames+2)*16>UINT32_MAX)return false;
+  const uint32_t offset=file.position()-306;
   const uint8_t zero[3]={};
-  if(!write(dcBuf,4)||!write(&padded,4)||!write(jpeg,bytes)||!write(zero,padded-bytes))return false;
-  buildAviIdx(padded);++frames;return true;
+  if(!write(dcBuf,4)||!write(&padded,4)||!write(jpeg,2)||!write(marker,sizeof(marker))
+    ||!write(jpeg+2,bytes-2)||!write(zero,padded-payload)||!index(dcBuf,padded,offset))return false;
+  ++frames;return true;
 }
 void resetTail() {heldCount=tailBytes=0;holding=false;tailStatus.store(false);}
 void discardFile() {
   applianceAudioTailFinish(false);finishAudioRecord(false);
-  if(file)file.close();SD.remove(TEMP);SD.remove(WAVTEMP);
+  if(file)file.close();if(indexFile)indexFile.close();SD.remove(TEMP);SD.remove(INDEX_TEMP);SD.remove(WAVTEMP);
   isCapturing=stopPlayback=false;resetTail();
 }
-bool close(uint32_t endAt) {
+bool close() {
   // finishAudioRecord atomically stops writes and discards the candidate tail;
   // do not resume the audio writer between discarding and finalization.
   bool healthy=applianceAudioRecordHealthy();finishAudioRecord(true);
-  const uint32_t duration=std::max(uint32_t(1),uint32_t(endAt-started));
+  const uint32_t duration=std::max(uint32_t(1),durationMs);
   bool ok=file&&frames&&healthy;
-  const bool sound=ok&&haveWavFile();
-  if(sound) {size_t bytes;do {bytes=writeWavFile(iSDbuffer,RAMSIZE);if(bytes&&!write(iSDbuffer,bytes))ok=false;}while(bytes);}
+  File wav=ok?SD.open(WAVTEMP,FILE_READ):File();
+  const uint32_t audioBytes=wav&&wav.size()>WAV_HDR_LEN?wav.size()-WAV_HDR_LEN:0;
+  if(ok&&audioBytes) {
+    const uint32_t offset=file.position()-306;
+    ok=uint64_t(file.position())+8+audioBytes+uint64_t(frames+1)*16+8<=UINT32_MAX
+      &&wav.seek(WAV_HDR_LEN)&&write(wbBuf,4)&&write(&audioBytes,4);
+    while(ok&&wav.available()){const size_t bytes=wav.read(iSDbuffer,RAMSIZE);ok=bytes&&write(iSDbuffer,bytes);}
+    ok=ok&&index(wbBuf,audioBytes,offset);
+  }else ok=false;
+  wav.close();
   if(ok) {
-    finalizeAviIndex(frames);size_t bytes;
-    do {bytes=writeAviIndex(iSDbuffer,RAMSIZE);if(bytes&&!write(iSDbuffer,bytes))ok=false;}while(bytes);
+    const uint32_t movieBytes=file.position()-306,indexBytes=(frames+1)*16;
+    indexFile.flush();indexFile.close();indexFile=SD.open(INDEX_TEMP,FILE_READ);
+    ok=indexFile&&indexFile.size()==indexBytes&&write("idx1",4)&&write(&indexBytes,4);
+    while(ok&&indexFile.available()){const size_t bytes=indexFile.read(iSDbuffer,RAMSIZE);ok=bytes&&write(iSDbuffer,bytes);}
+    indexFile.close();
+    uint8_t header[AVI_HEADER_LEN];
     xSemaphoreTake(aviMutex,portMAX_DELAY);
-    buildAviHdr(15,FRAMESIZE_VGA,frames,false,duration);
-    if(!file.seek(0,SeekSet)||!write(aviHeader,AVI_HEADER_LEN))ok=false;
+    memcpy(header,aviHeader,sizeof(header));
     xSemaphoreGive(aviMutex);
+    auto put=[&](size_t at,uint32_t value){memcpy(header+at,&value,4);};
+    // SD's write-only handle may still report size()==0 until flush/close.
+    // position() includes the complete movie and index before seeking the header.
+    put(4,file.position()-8);put(0x20,uint64_t(duration)*1000/frames);put(0x30,frames);put(0x38,2);
+    put(0x40,640);put(0x44,480);put(0x80,duration);put(0x84,frames*1000);put(0x8c,frames);
+    put(0xa8,640);put(0xac,480);put(0xf4,1);put(0xf8,SAMPLE_RATE);put(0x100,audioBytes/2);
+    put(0x104,SAMPLE_RATE*2);put(0x11c,SAMPLE_RATE);put(0x120,SAMPLE_RATE*2);put(0x12e,movieBytes);
+    if(!file.seek(0,SeekSet)||!write(header,sizeof(header)))ok=false;
     file.flush();
   }
   if(file)file.close();
+  if(indexFile)indexFile.close();
   char path[FILE_NAME_LEN];
   snprintf(path,sizeof(path),"%s_%06lx_event_VGA_S.avi",stamp,(unsigned long)eventId);
   if(ok)ok=!SD.exists(path)&&SD.rename(TEMP,path);
-  if(ok){saved.fetch_add(1);LOG_INF("Saved 480p event: %u frames, %lu ms",frames,(unsigned long)duration);}
+  if(ok){saved.fetch_add(1);LOG_INF("Saved 480p event session: %lu frames, %lu ms, %lu events",(unsigned long)frames,(unsigned long)duration,(unsigned long)sessionEvents.load());}
   else {SD.remove(TEMP);error.store("event_write_failed");}
-  SD.remove(WAVTEMP);isCapturing=stopPlayback=false;resetTail();return ok;
+  SD.remove(INDEX_TEMP);SD.remove(WAVTEMP);isCapturing=stopPlayback=false;resetTail();return ok;
 }
 bool open() {
   if(!applianceStorageSpaceAvailable()){error.store("minimum_free_space");return false;}
@@ -106,18 +179,25 @@ bool open() {
   for(unsigned i=0;i<8&&!unique;++i){eventId=esp_random()&0xffffff;char path[FILE_NAME_LEN];
     snprintf(path,sizeof(path),"%s_%06lx_event_VGA_S.avi",stamp,(unsigned long)eventId);unique=!SD.exists(path);}
   if(!unique){error.store("event_name_collision");return false;}
-  file=SD.open(TEMP,FILE_WRITE);uint8_t blank[AVI_HEADER_LEN]={};
-  if(!file||!write(blank,sizeof(blank))){discardFile();error.store("event_write_failed");return false;}
-  if(!appliancePrepareEventIndex()){discardFile();error.store("event_memory_failed");return false;}
-  frames=0;resetTail();started=millis();startAudioRecord();
-  isCapturing=stopPlayback=true;return true;
+  SD.remove(TEMP);SD.remove(INDEX_TEMP);SD.remove(WAVTEMP);
+  file=SD.open(TEMP,FILE_WRITE);indexFile=SD.open(INDEX_TEMP,FILE_WRITE);uint8_t blank[AVI_HEADER_LEN]={};
+  if(!file||!indexFile||!write(blank,sizeof(blank))){discardFile();error.store("event_write_failed");return false;}
+  frames=durationMs=0;resetTail();startAudioRecord();return true;
+}
+void finishSegment(uint32_t endAt) {
+  applianceAudioRecordPause(true);applianceAudioTailFinish(false);
+  durationMs+=std::max(uint32_t(1),uint32_t(endAt-started));
+  isCapturing=stopPlayback=false;resetTail();
+  setFPS(15); // Keep idle motion sampling responsive.
 }
 void release() {
+  timestampJpeg.release();
   free(rgb);free(gray);free(previous);free(tail);rgb=gray=previous=tail=nullptr;
   applianceAudioTailRelease();background=motion=false;positives=failures=0;score.store(0);
 }
 void stop() {
-  if(isCapturing)close(holding?quietAt:millis());
+  if(isCapturing)finishSegment(holding?quietAt:millis());
+  if(file)close();
   // Sensor changes and buffer release happen exclusively in the capture owner.
   // Keep mode guards active until the stored resolution/FPS is restored;
   // otherwise HTTP could observe disarmed while the sensor is still VGA.
@@ -201,6 +281,34 @@ esp_err_t fixture(httpd_req_t* req) {
   cJSON* root=got==req->content_len&&!memchr(body,0,got)?cJSON_ParseWithLengthOpts(body,got+1,nullptr,true):nullptr;
   cJSON* scene=root?cJSON_GetObjectItemCaseSensitive(root,"scene"):nullptr;unsigned value=99;
   if(cJSON_IsObject(root)&&cJSON_GetArraySize(root)==1&&cJSON_IsString(scene)) {
+    if(!strcmp(scene->valuestring,"runtime")) {
+      cJSON_Delete(root);char response[192];
+      snprintf(response,sizeof(response),"{\"freeHeap\":%u,\"minimumFreeHeap\":%u,\"largestInternalBlock\":%u,\"freePsram\":%u,\"captureStackFree\":%u}",
+        unsigned(ESP.getFreeHeap()),unsigned(ESP.getMinFreeHeap()),
+        unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),
+        unsigned(ESP.getFreePsram()),unsigned(uxTaskGetStackHighWaterMark(captureHandle)));
+      return json(req,"200 OK",response);
+    }
+    if(!strcmp(scene->valuestring,"timestamp_selftest")) {
+      uint8_t marker[appliance::EVENT_MARKER_BYTES],jpeg[2+appliance::EVENT_MARKER_BYTES+2]={255,216};char parsed[20];
+      unsigned passed=0;const char* clock="2026-10-08 14:27:39";
+      if(appliance::eventTimestampMarker(marker,clock))++passed;
+      memcpy(jpeg+2,marker,sizeof(marker));jpeg[sizeof(jpeg)-2]=255;jpeg[sizeof(jpeg)-1]=217;
+      if(appliance::readEventTimestamp(jpeg,sizeof(jpeg),parsed)&&!strcmp(clock,parsed))++passed;
+      if(!appliance::readEventTimestamp(jpeg,10,parsed))++passed;
+      jpeg[4]=255;if(!appliance::readEventTimestamp(jpeg,sizeof(jpeg),parsed))++passed;jpeg[4]=0;
+      jpeg[14]='x';if(!appliance::readEventTimestamp(jpeg,sizeof(jpeg),parsed))++passed;
+      uint8_t* pixels=static_cast<uint8_t*>(ps_malloc(320*32*2));
+      if(pixels){memset(pixels,100,320*32*2);
+        if(appliance::drawEventClock(pixels,320,32,clock))++passed;
+        if(pixels[0]==100&&pixels[(8*320+82)*2+1]==0&&pixels[(10*320+86)*2+1]==255)++passed;
+        if(pixels[(10*320+86)*2]==128)++passed;
+        if(!appliance::drawEventClock(pixels,160,32,clock))++passed;
+        if(!appliance::drawEventClock(pixels,320,16,clock))++passed;free(pixels);
+      }
+      cJSON_Delete(root);char response[64];snprintf(response,sizeof(response),"{\"passed\":%u,\"total\":10}",passed);
+      return json(req,"200 OK",response);
+    }
     if(!strcmp(scene->valuestring,"selftest")) {
       uint8_t* samples=static_cast<uint8_t*>(ps_malloc(PIXELS*2));
       if(!samples){cJSON_Delete(root);return json(req,"503 Service Unavailable","{}");}
@@ -236,15 +344,18 @@ void applianceEventsTick() {
   gray=static_cast<uint8_t*>(ps_malloc(PIXELS));
   tail=static_cast<uint8_t*>(ps_malloc(TAIL_BYTES));
   sensor_t* sensor=esp_camera_sensor_get();
-  if(!rgb||!gray||!previous||!tail||!applianceAudioTailPrepare()||!sensor||sensor->set_framesize(sensor,FRAMESIZE_VGA)) {
+  if(!rgb||!gray||!previous||!tail||!applianceAudioTailPrepare()||!timestampJpeg.begin()||!sensor||sensor->set_framesize(sensor,FRAMESIZE_VGA)) {
     error.store("event_prepare_failed");requested.store(false);release();applianceSettingsCaptureStart();return;
   }
   fsizePtr=FRAMESIZE_VGA;setFPS(15);armed.store(true);settledAt=millis();sampled=spaceAt=0;
+  sessionEvents=0;
   for(unsigned i=0;i<4;++i){camera_fb_t* frame=esp_camera_fb_get();if(frame)esp_camera_fb_return(frame);}
 }
 void applianceEventsFrame(camera_fb_t* frame) {
   if(!armed.load())return;
   uint32_t now=millis();
+  // Snapshot before detection or flushing held JPEGs can delay this frame.
+  const time_t captured=time(nullptr);
   if(SD.cardType()==CARD_NONE||(now-spaceAt>=5000&&!applianceStorageSpaceAvailable())) {
     spaceAt=now;error.store("minimum_free_space");requested.store(false);return;
   }
@@ -254,7 +365,10 @@ void applianceEventsFrame(camera_fb_t* frame) {
   if(!requested.load()){stop();return;}
   if(!isCapturing) {
     if(!checked||positives<2)return;
-    if(!open()){requested.store(false);stop();return;}
+    if(!file&&!open()){requested.store(false);stop();return;}
+    // Painting JPEGs is approximately a 5 FPS workload on S3. Use the same
+    // cadence for held quiet frames, avoiding a 15 FPS burst on resumption.
+    setFPS(5);started=millis();++sessionEvents;applianceAudioRecordPause(false);isCapturing=stopPlayback=true;
   }
   // Opening/decoding can advance the clock. A stale pre-open timestamp can
   // precede started, so unsigned elapsed time would instantly hit the limit.
@@ -263,26 +377,34 @@ void applianceEventsFrame(camera_fb_t* frame) {
   if(holding) {
     if(checked&&motion) {
       if(!applianceAudioTailFinish(true)){error.store("event_audio_failed");discardFile();requested.store(false);stop();return;}
-      for(size_t i=0;i<heldCount;++i)if(!append(tail+held[i].offset,held[i].bytes)){
+      for(size_t i=0;i<heldCount;++i)if(!append(tail+held[i].offset,held[i].bytes,held[i].clock)){
         error.store("event_write_failed");discardFile();requested.store(false);stop();return;}
       resetTail();
-    } else if(now-quietAt>=QUIET_MS) {if(!close(quietAt)){requested.store(false);stop();}return;}
+    } else if(now-quietAt>=QUIET_MS) {finishSegment(quietAt);return;}
     else {
       if(heldCount>=TAIL_FRAMES||frame->len>TAIL_BYTES-tailBytes) {
-        error.store("event_tail_limit");close(quietAt);return;
+        error.store("event_tail_limit");finishSegment(quietAt);return;
       }
-      held[heldCount++]={tailBytes,frame->len};memcpy(tail+tailBytes,frame->buf,frame->len);tailBytes+=frame->len;return;
+      Held& entry=held[heldCount++];entry.offset=tailBytes;entry.bytes=frame->len;
+      struct tm local;localtime_r(&captured,&local);strftime(entry.clock,sizeof(entry.clock),"%Y-%m-%d %H:%M:%S",&local);
+      memcpy(tail+tailBytes,frame->buf,frame->len);tailBytes+=frame->len;return;
     }
   }
-  if(!append(frame->buf,frame->len)||!applianceAudioRecordHealthy()) {
+  char clock[20];struct tm local;localtime_r(&captured,&local);strftime(clock,sizeof(clock),"%Y-%m-%d %H:%M:%S",&local);
+  if(!append(frame->buf,frame->len,clock)||!applianceAudioRecordHealthy()) {
     error.store("event_write_failed");discardFile();requested.store(false);stop();return;
   }
-  if(now-started>=MAX_CLIP_MS||frames>=4000) {if(!close(millis())){requested.store(false);stop();}}
+  // AVI 1.0 has 32-bit size/timing fields. End this session at its format
+  // boundary instead of silently producing a second video.
+  if(frames>=UINT32_MAX/1000||uint64_t(durationMs)+uint32_t(now-started)>=UINT32_MAX-1000
+    ||uint64_t(file.position())+uint64_t(frames)*16+uint64_t(durationMs+uint32_t(now-started))*32+1048576>=UINT32_MAX) {
+    error.store("event_file_limit");requested.store(false);stop();
+  }
 }
 void applianceEventsStatus(char* output,size_t bytes) {
   const bool active=armed.load(), pending=requested.load();
-  snprintf(output,bytes,"{\"requested\":%s,\"armed\":%s,\"quietPending\":%s,\"sensitivity\":%u,\"changedPermille\":%u,\"savedClips\":%u,\"decodeMs\":%u,\"error\":\"%s\"}",
-    pending?"true":"false",active?"true":"false",tailStatus.load()?"true":"false",sensitivity.load(),score.load(),saved.load(),decodeMs.load(),error.load());
+  snprintf(output,bytes,"{\"requested\":%s,\"armed\":%s,\"quietPending\":%s,\"sensitivity\":%u,\"changedPermille\":%u,\"savedClips\":%u,\"sessionEvents\":%lu,\"decodeMs\":%u,\"error\":\"%s\"}",
+    pending?"true":"false",active?"true":"false",tailStatus.load()?"true":"false",sensitivity.load(),score.load(),saved.load(),(unsigned long)sessionEvents.load(),decodeMs.load(),error.load());
 }
 bool applianceRegisterEventRoutes(httpd_handle_t server) {
   const httpd_uri_t routes[]={

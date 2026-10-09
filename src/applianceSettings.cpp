@@ -20,7 +20,7 @@
 namespace {
 struct Parameter { const char* name; int32_t minimum, maximum, initial; };
 const Parameter parameters[] = {
-  {"videoResolution",FRAMESIZE_QVGA,FRAMESIZE_UXGA,FRAMESIZE_VGA},
+  {"videoResolution",FRAMESIZE_QVGA,FRAMESIZE_VGA,FRAMESIZE_VGA},
   {"photoResolution",FRAMESIZE_QVGA,FRAMESIZE_QXGA,FRAMESIZE_QXGA},
   {"fps",1,30,15},{"videoQuality",5,63,10},{"photoQuality",5,63,8},
   {"brightness",-2,2,1},{"contrast",-2,2,0},{"saturation",-2,2,0},
@@ -62,27 +62,27 @@ public:
   ~Change(){changing.store(previous);}
 };
 Values defaults() { Values result = {}; for(size_t i=0;i<COUNT;++i)result.value[i]=parameters[i].initial; return result; }
-bool supportedResolution(int value, bool photo) {
+bool supportedResolution(int value, bool photo, bool legacy=false) {
   const int options[] = {FRAMESIZE_QVGA,FRAMESIZE_VGA,FRAMESIZE_SVGA,FRAMESIZE_XGA,
     FRAMESIZE_HD,FRAMESIZE_SXGA,FRAMESIZE_UXGA,FRAMESIZE_QXGA};
-  for(int option:options) if(option==value && (photo || option<=FRAMESIZE_UXGA)) return true;
+  for(int option:options) if(option==value && (photo || option<=(legacy?FRAMESIZE_UXGA:FRAMESIZE_VGA))) return true;
   return false;
 }
-bool valid(const Values& values) {
-  for(size_t i=0;i<COUNT;++i)if(values.value[i]<parameters[i].minimum||values.value[i]>parameters[i].maximum)return false;
-  return supportedResolution(values.value[VIDEO],false)&&supportedResolution(values.value[PHOTO],true)
+bool valid(const Values& values,bool legacy=false) {
+  for(size_t i=0;i<COUNT;++i)if(values.value[i]<parameters[i].minimum||values.value[i]>(legacy&&i==VIDEO?FRAMESIZE_UXGA:parameters[i].maximum))return false;
+  return supportedResolution(values.value[VIDEO],false,legacy)&&supportedResolution(values.value[PHOTO],true)
     && (values.value[CPU]==80||values.value[CPU]==160||values.value[CPU]==240);
 }
 uint32_t crc32(const void* data,size_t bytes) {
   uint32_t crc=0xffffffff; const auto* p=static_cast<const uint8_t*>(data);
   while(bytes--){crc^=*p++;for(unsigned i=0;i<8;++i)crc=(crc>>1)^(0xedb88320u&(0u-(crc&1u)));} return ~crc;
 }
-bool read(uint8_t target,Record& record) {
+bool read(uint8_t target,Record& record,bool legacy=false) {
   const char* key=target?"bank1":"bank0";
   return preferences.getBytesLength(key)==sizeof(record)
     &&preferences.getBytes(key,&record,sizeof(record))==sizeof(record)
     &&record.magic==MAGIC&&record.version==1&&record.bytes==sizeof(record)&&record.revision
-    &&record.crc==crc32(&record,offsetof(Record,crc))&&valid(record.values);
+    &&record.crc==crc32(&record,offsetof(Record,crc))&&valid(record.values,legacy);
 }
 bool futureRecord(uint8_t target) {
   const char* key=target?"bank1":"bank0";const size_t bytes=preferences.getBytesLength(key);
@@ -266,11 +266,15 @@ bool applianceSettingsBegin() {
   if(writable&&preferences.isKey("selected")) {
     bank=preferences.getUChar("selected",255);Record record={};
     if(bank<2&&futureRecord(bank)){writable=false;lastError="settings_storage_unsupported";}
-    else if(bank<2&&read(bank,record)){active=record.values;revision=record.revision;}
-    else if(bank<2&&read(1-bank,record)){bank=1-bank;active=record.values;revision=record.revision;lastError="previous_settings_recovered";}
+    else if(bank<2&&read(bank,record,true)){active=record.values;revision=record.revision;}
+    else if(bank<2&&read(1-bank,record,true)){bank=1-bank;active=record.values;revision=record.revision;lastError="previous_settings_recovered";}
     else {writable=false;lastError="settings_storage_invalid";bank=0;}
   } else if(!writable)lastError="settings_storage_unavailable";
   if(writable&&(futureRecord(0)||futureRecord(1))){writable=false;lastError="settings_storage_unsupported";}
+  if(active.value[VIDEO]>FRAMESIZE_VGA) {
+    active.value[VIDEO]=FRAMESIZE_VGA;
+    if(writable&&!save(active))lastError="video_limit_storage_failed";
+  }
   lastActivity=millis();return true;
 }
 bool applianceRegisterSettingsRoutes(httpd_handle_t server) {

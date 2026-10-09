@@ -191,6 +191,7 @@ mjpegStruct getNextFrame(bool firstCall = false);
 bool getPIRval();
 
 bool haveWavFile(bool isTL = false);
+void applianceAudioRecordPause(bool paused);
 bool identifyBMx();
 bool identifyMPU(char* _mpuModel);
 void intercom();

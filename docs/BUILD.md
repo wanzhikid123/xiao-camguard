@@ -1,5 +1,13 @@
 # Build and local tools
 
+Latest release evidence (2026-10-09): [CLOCK_SYNC.md](CLOCK_SYNC.md).
+The event AVI clock pipeline is recorded in [EVENT_AVI_CLOCK.md](EVENT_AVI_CLOCK.md).
+The initial idle repair is recorded in [EVENT_SESSION_FIX.md](EVENT_SESSION_FIX.md).
+Build `xiao-appliance` for normal use; the combined
+`xiao-appliance-event-codec-test` environment is for isolated regression only.
+Build environments sequentially and archive each BIN/ELF before switching.
+Firmware sizes and hashes below dated 2026-10-04 are historical.
+
 These commands use the repository root. Arduino IDE is not required.
 Python 3.10–3.14 is required by the selected pioarduino platform (3.14.5 used).
 

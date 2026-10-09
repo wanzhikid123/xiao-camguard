@@ -35,11 +35,11 @@ remote login/photo/recording and authenticated WG OTA passes. The separate
 | GET `/api/account` | Session; public password policy and pending flag only |
 | POST `/api/account/password` | Session/CSRF/origin; exact bounded current/new/confirmation JSON; shared asynchronous password worker, verifier-only owner commit, revokes all sessions on success |
 | GET `/api/account/password/result` | Same origin/request marker and expiring private result-ticket header; single-use result survives old-cookie revocation, no other authority |
-| GET `/api/status` | Session; explicit primitive allowlist, including real `audioInputRunning`, checked `cameraSensorSleeping`, `lastWakeFrameMs`, CPU/heap/PSRAM and capture-idle measurements; no Config serialization |
+| GET `/api/status` | Session; explicit primitive allowlist, including `timeSynchronized`, POSIX `timezone`, `localTime`, UTC `epochSeconds`, real `audioInputRunning`, checked `cameraSensorSleeping`, `lastWakeFrameMs`, CPU/heap/PSRAM and capture-idle measurements; no Config serialization |
 | GET `/api/camera/still` | Session; existing capture buffer returns JPEG |
 | GET `/api/camera/stream` | Session; existing MJPEG task; no query/HEAD controls |
 | POST `/api/record/start`, `/api/record/stop` | Session, CSRF, same origin, empty body, no query |
-| POST `/api/events/start`, `/api/events/stop` | Session/CSRF/origin, no query; temporary 640×480 independent event monitoring; start accepts an optional sensitivity integer 1–10, stop requires empty body |
+| POST `/api/events/start`, `/api/events/stop` | Session/CSRF/origin, no query; temporary 640×480 event-session monitoring; start accepts an optional sensitivity integer 1–10, stop requires empty body |
 | POST `/api/device/restart` | Session/CSRF, empty body/no query; rejects recording and file finalization |
 | POST `/api/setup` | Unconfigured account, actual AP destination, random setup nonce/request marker/origin; exact bounded Wi-Fi/admin JSON |
 | GET `/api/setup/result` | Random expiring setup ticket/request marker; masked progress/IP/revision |
@@ -89,6 +89,9 @@ the async request completes. Logout therefore closes an existing stream rather
 than protecting only the next connection. Frame-wait and socket-send bounds
 still apply. Sessions remain independent between clients.
 
+Video choices are QVGA 320×240 and VGA 640×480; requests above VGA are rejected.
+A valid older saved video resolution above VGA is clamped to VGA during boot
+without discarding the remaining capture settings.
 Current capture defaults are video VGA 640×480, requested 15 FPS, photo
 2048×1536 and fourfold (+12 dB) microphone gain, 16 kHz/16-bit/mono PCM.
 Apply saved capture values after the legacy reload so its frame-size side
@@ -157,15 +160,21 @@ See [AUTHENTICATION.md](AUTHENTICATION.md) and [SETUP.md](SETUP.md).
 `{"sensitivity":5}` as the exact JSON schema; the integer range is 1–10.
 `POST /api/events/stop` requires an empty body. Both require session, CSRF
 and same Origin and return 202 when accepted. The capture owner applies a
-temporary VGA / 15 FPS target, not a persisted capture-setting change.
+temporary VGA with a 15 FPS monitoring target and 5 FPS timestamp recording
+target; stored capture settings are restored on disarm.
 Starting is blocked during manual recording, playback, capture changes,
 downloads, unavailable camera/microphone/SD or insufficient free space.
 Manual recording, saved photos, sensor setting changes, restart and OTA are
 blocked while event monitoring is requested/armed. Preview/status remain usable.
-Stopping finalizes a current clip and restores the stored video settings.
+Stopping finalizes one video containing every motion event in the monitoring
+session and restores the stored video settings. Quiet gaps are omitted; empty
+sessions create no file. Each saved JPEG visibly shows its actual capture
+clock at the top right in the AVI itself. Idle MP4 conversion only transcodes
+those pixels; it does not add or repaint the time.
 
 `GET /api/status` adds `events`: requested/armed/quietPending flags, sensitivity,
-changedPermille, savedClips since boot, last decodeMs and a bounded error code.
+changedPermille, savedClips (finalized session videos since boot), sessionEvents
+(events in the latest monitoring session), last decodeMs and a bounded error code.
 Boot is disarmed; logout does not disarm. See [EVENT_CAPTURE.md](EVENT_CAPTURE.md).
 
 `POST /api/media/delete-batch` accepts only `{"paths":["/YYYYMMDD/...jpg"]}`:
@@ -177,7 +186,8 @@ response has `deleted` and `error`; a storage failure may report partial deletio
 The UI's delete-all enumerates all date/file pages before confirmation, then
 uses this bounded API. There is no unrestricted recursive SD deletion endpoint.
 
-Only `xiao-appliance-event-test` adds authenticated LAN `POST /api/events/test`
+Only the explicit event fixtures (`xiao-appliance-event-test` and the combined
+`xiao-appliance-event-codec-test`) add authenticated LAN `POST /api/events/test`
 with a RAM-only scene fixture after actual JPEG decoding. Normal images have
 no such route. It does not prove physical motion sensitivity.
 

@@ -48,12 +48,12 @@ PIN 更换已请求。请稍后查看新 PIN 并重新配对。|PIN rotation req
 高|High|Hoch
 开启事件抓拍 · 480p|Enable event capture · 480p|Ereignisaufnahme starten · 480p
 停止事件抓拍|Stop event capture|Ereignisaufnahme stoppen
-画面变化时保存独立片段；静止不保存。监测期间保持摄像头运行，退出登录后继续监测。|Save separate clips when the scene changes; static scenes are not saved. Monitoring keeps the camera running and continues after sign-out.|Bei Bildänderungen werden separate Clips gespeichert; ruhige Szenen werden nicht gespeichert. Die Kamera bleibt zur Überwachung aktiv, auch nach dem Abmelden.
+一次监测合成一个视频，只保存运动片段；停止后生成文件，AVI 右上角显示实际事件时间，MP4 仅转码。退出登录后继续监测。|One video per monitoring session, containing motion only. Stop monitoring to save it; the AVI shows the actual event time at the top right, and MP4 conversion only transcodes it. Monitoring continues after sign-out.|Ein Video pro Überwachungssitzung mit Bewegungsphasen. Beim Stoppen wird es gespeichert; die tatsächliche Ereigniszeit erscheint im AVI oben rechts. Die MP4-Konvertierung transkodiert nur. Die Überwachung läuft nach dem Abmelden weiter.
 抓拍状态：{error}|Event status: {error}|Ereignisstatus: {error}
 正在确认静止；空画面尾部不会保存。|Confirming a quiet scene; the quiet tail will not be saved.|Ruhe wird bestätigt; das ruhige Clipende wird nicht gespeichert.
-● 正在保存事件片段 · 480p|● Saving event clip · 480p|● Ereignisclip wird gespeichert · 480p
+● 正在录入同一个事件视频 · 480p|● Adding to the session video · 480p|● Aufnahme in das Sitzungsvideo · 480p
 ● 正在监测画面 · 480p|● Monitoring scene · 480p|● Bildüberwachung aktiv · 480p
-本次启动已保存 {count} 个事件。|{count} events saved since boot.|{count} Ereignisse seit dem Start gespeichert.
+本次监测已录入 {count} 个事件。|{count} events in this session.|{count} Ereignisse in dieser Sitzung.
 已请求开启 480p 事件监测。|480p event monitoring requested.|480p-Ereignisüberwachung angefordert.
 抓拍未能开启，请先结束录像和下载，并检查麦克风与 SD 卡。|Event monitoring could not start. Stop recording and downloads, and check the microphone and SD card.|Ereignisüberwachung konnte nicht starten. Aufnahme und Downloads beenden sowie Mikrofon und SD-Karte prüfen.
 正在停止监测并保存当前事件。|Stopping monitoring and saving the current event.|Überwachung wird beendet und das aktuelle Ereignis gespeichert.

@@ -1,5 +1,14 @@
 # Isolated XIAO hardware utilities
 
+Clock gate (normal firmware, no fixture): `test_appliance_clock.py --address
+192.168.1.181 --video --out .tools/hardware/appliance-clock/green.json`
+checks the actual NTP UTC clock, Berlin local clock, a saved photo and a short
+audio/video recording. `--firmware <normal.bin>` installs a supplied normal image;
+`--reboot` separately checks cold boot and legacy-config reload. It refuses active
+capture modes, removes only its owned media, and restores the conversion switch.
+The POSIX winter/summer/transition/midnight gate uses the Windows WSL runtime:
+`wsl -d Ubuntu-24.04 --exec python3 /mnt/c/Users/Jingjie/Desktop/ESP32/tests/test_clock_timezone.py`.
+
 BLE / scheduled-photo / MP4 gates:
 
 - Build `xiao-appliance` and `xiao-appliance-codec-test` separately before running

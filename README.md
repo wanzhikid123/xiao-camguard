@@ -11,7 +11,7 @@ profile (`xiao-appliance`): authenticated photo/video capture with PDM audio,
 WireGuard remote access and guarded IPv4 full-tunnel routing, OTA, an offline
 Chinese/English/German web UI, camera controls and idle power saving.
 This implementation adds authenticated BLE management, idle H.264/AAC MP4
-conversion, and interval photo sessions alongside independent event clips and
+conversion, and interval photo sessions alongside one video per event-monitoring session and
 bulk media deletion. Feature contracts and hardware validation status are in
 [the feature guide](docs/FEATURES_BLE_TIMELAPSE_MP4.md) and
 [the implementation record](IMPLEMENTATION_SUMMARY.md). See the [user guide](docs/USER_GUIDE.md),

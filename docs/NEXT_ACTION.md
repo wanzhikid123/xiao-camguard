@@ -1,5 +1,13 @@
 # 后续工作
 
+最新板端转码优化与验收见 [转码优化记录](CODEC_OPTIMIZATION.md)：时间轴、
+分块 JPEG/I420、内存检查；MP4 索引落盘与真实超十分钟长片验收属于后续工作。
+
+2026-10-09 的录像 640×480 上限、单个事件 Session AVI、AVI 右上角时间与
+纯 H.264 转码及最新固件证据见 [AVI 时间与转码记录](EVENT_AVI_CLOCK.md)。
+初次 idle 故障复现见 [事件录像修复记录](EVENT_SESSION_FIX.md)。
+下面 2026-10-04 的固件大小、媒体数量和构建摘要属于历史记录。
+
 BLE 管理、后台 MP4 转换、定时拍照代码已实现，当前实机验收结果以
 [实施记录](../IMPLEMENTATION_SUMMARY.md) 为准，操作说明见
 [三项功能指南](FEATURES_BLE_TIMELAPSE_MP4.md)。下面的事件固件数据是此前的验收记录。
